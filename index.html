@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VIREXA Chat</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Arial, sans-serif; background: #0b1020; color: white; }
+header { padding: 18px; text-align: center; background: #151d35; border-bottom: 1px solid #293453; }
+header h1 { margin: 0; color: #7c9cff; letter-spacing: 3px; }
+header p { margin: 7px 0 0; color: #aebbe0; font-size: 13px; }
+#loginBox { max-width: 420px; margin: 60px auto; padding: 24px; text-align: center; }
+button { border: none; border-radius: 10px; padding: 13px 18px; background: #718cff; color: #fff; font-size: 15px; font-weight: bold; cursor: pointer; }
+button:disabled { opacity: 0.6; }
+#chatBox { display: none; max-width: 600px; margin: auto; padding: 12px; }
+#userInfo { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; background: #151d35; border-radius: 12px; margin-bottom: 12px; }
+#userName { overflow-wrap: anywhere; }
+#logoutBtn { background: #293453; font-size: 12px; }
+#messages { height: 55vh; min-height: 250px; overflow-y: auto; padding: 12px; background: #11182b; border: 1px solid #293453; border-radius: 12px; }
+.message { background: #202b49; padding: 10px; border-radius: 10px; margin-bottom: 10px; overflow-wrap: anywhere; }
+.message strong { color: #9bb0ff; font-size: 12px; }
+.message p { margin: 6px 0 0; white-space: pre-wrap; }
+#sendArea { display: flex; gap: 8px; margin-top: 10px; }
+#messageInput { flex: 1; min-width: 0; padding: 13px; border: 1px solid #344264; border-radius: 10px; background: #151d35; color: white; font-size: 15px; }
+#status { text-align: center; color: #aebbe0; font-size: 13px; margin-top: 14px; }
+</style>
+</head>
+<body>
+<header><h1>VIREXA</h1><p>Your world. Your conversations.</p></header>
+<div id="loginBox">
+  <h2>Welcome to VIREXA</h2>
+  <p>Sign in to start chatting.</p>
+  <button id="loginBtn">Continue with Google</button>
+  <p id="loginStatus"></p>
+</div>
+<div id="chatBox">
+  <div id="userInfo"><span id="userName">Loading...</span><button id="logoutBtn">Logout</button></div>
+  <div id="messages"></div>
+  <div id="sendArea">
+    <input id="messageInput" type="text" placeholder="Type a message..." maxlength="1000">
+    <button id="sendBtn">Send</button>
+  </div>
+  <p id="status">Connecting...</p>
+</div>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import {
+  getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import {
+  getDatabase, ref, push, set, query, orderByChild, limitToLast, onValue
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDEvSJRaC5GnUiPMKR5tOKmZ6pb--pj6Ak",
+  authDomain: "virexa-5172b.firebaseapp.com",
+  databaseURL: "https://virexa-5172b-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "virexa-5172b",
+  storageBucket: "virexa-5172b.firebasestorage.app",
+  messagingSenderId: "406226683400",
+  appId: "1:406226683400:web:064020eef84b8c9f9ef3bd",
+  measurementId: "G-6ZHB84HHLJ"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+const provider = new GoogleAuthProvider();
+
+const loginBox = document.getElementById("loginBox");
+const chatBox = document.getElementById("chatBox");
+const loginStatus = document.getElementById("loginStatus");
+const status = document.getElementById("status");
+const messagesBox = document.getElementById("messages");
+const messageInput = document.getElementById("messageInput");
+const sendBtn = document.getElementById("sendBtn");
+
+let currentUser = null;
+let stopMessages = null;
+
+document.getElementById("loginBtn").addEventListener("click", async () => {
+  loginStatus.textContent = "Signing in...";
+  try {
+    await signInWithPopup(auth, provider);
+  } catch (error) {
+    loginStatus.textContent = "Login error: " + error.message;
+  }
+});
+
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  try {
+    if (stopMessages) {
+      stopMessages();
+      stopMessages = null;
+    }
+    await signOut(auth);
+  } catch (error) {
+    status.textContent = error.message;
+  }
+});
+
+onAuthStateChanged(auth, (user) => {
+  currentUser = user;
+  if (stopMessages) {
+    stopMessages();
+    stopMessages = null;
+  }
+  if (!user) {
+    loginBox.style.display = "block";
+    chatBox.style.display = "none";
+    messagesBox.replaceChildren();
+    return;
+  }
+  loginBox.style.display = "none";
+  chatBox.style.display = "block";
+  document.getElementById("userName").textContent =
+    user.displayName || user.email || "VIREXA user";
+  listenForMessages();
+});
+
+function listenForMessages() {
+  status.textContent = "Loading messages...";
+  const messagesQuery = query(ref(db, "messages"), orderByChild("createdAt"), limitToLast(100));
+  stopMessages = onValue(messagesQuery, (snapshot) => {
+    messagesBox.replaceChildren();
+    snapshot.forEach((item) => {
+      const data = item.val() || {};
+      const card = document.createElement("div");
+      card.className = "message";
+      const name = document.createElement("strong");
+      name.textContent = data.name || "VIREXA user";
+      const text = document.createElement("p");
+      text.textContent = data.text || "";
+      card.append(name, text);
+      messagesBox.appendChild(card);
+    });
+    messagesBox.scrollTop = messagesBox.scrollHeight;
+    status.textContent = "Connected";
+  }, (error) => {
+    status.textContent = "Database error: " + error.message;
+  });
+}
+
+async function sendMessage() {
+  if (!currentUser) {
+    status.textContent = "Please sign in first.";
+    return;
+  }
+  const text = messageInput.value.trim();
+  if (!text) return;
+  sendBtn.disabled = true;
+  try {
+    const newMessage = push(ref(db, "messages"));
+    await set(newMessage, {
+      uid: currentUser.uid,
+      name: currentUser.displayName || "VIREXA user",
+      text,
+      createdAt: Date.now()
+    });
+    messageInput.value = "";
+    messageInput.focus();
+    status.textContent = "Message sent!";
+  } catch (error) {
+    status.textContent = "Send failed: " + error.message;
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+sendBtn.addEventListener("click", sendMessage);
+messageInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") sendMessage();
+});
+</script>
+</body>
+</html>
